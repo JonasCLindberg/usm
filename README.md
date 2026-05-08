@@ -43,3 +43,4 @@ Efter 1-2 minuter far du en URL i stil med:
 Oppna den publicerade URL:en i Safari/Chrome pa telefonen.
 
 Tips: lagg till sidan pa hemskarmen for snabb oppning.
+# biljett
