@@ -44,3 +44,4 @@ Oppna den publicerade URL:en i Safari/Chrome pa telefonen.
 
 Tips: lagg till sidan pa hemskarmen for snabb oppning.
 # biljett
+# xxxbiljett
