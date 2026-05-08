@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Länkpollare</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --ok: #15803d;
+      --warn: #b45309;
+      --err: #b91c1c;
+      --border: #e5e7eb;
+      --accent: #0f766e;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at 10% 10%, #e6fffa 0%, var(--bg) 45%);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.8rem;
+    }
+
+    p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .overall {
+      margin: 0 0 18px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .overall-available {
+      color: var(--ok);
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+
+    .overall-unavailable {
+      color: #334155;
+    }
+
+    button {
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(0.95); }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .item {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .url {
+      word-break: break-word;
+      color: #0f172a;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .link-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .signal {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stop-sign {
+      width: 30px;
+      height: 30px;
+      background: #dc2626;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .stop-sign::before {
+      content: "";
+      width: 16px;
+      height: 4px;
+      border-radius: 2px;
+      background: #fff;
+    }
+
+    .signal-ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .signal-available {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .available-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #16a34a;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .signal-stop {
+      color: var(--err);
+    }
+
+    .status-ok { color: var(--ok); }
+    .status-warn { color: var(--warn); }
+    .status-err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>Länkpollare</h1>
+    <p>
+      Sidan kontrollerar länkarna automatiskt var 30:e sekund och visar om texten
+      "OUT OF STOCK" eller "ADD TO CART" hittas.
+      Om servern blockerar cross-origin-förfrågningar visas ett fel.
+    </p>
+
+    <div class="controls">
+      <button id="refreshBtn" type="button">Uppdatera nu</button>
+      <span id="lastRun" class="small">Inte kontrollerad ännu</span>
+    </div>
+
+    <p id="overall" class="overall overall-unavailable">Kontrollerar tillgänglighet...</p>
+
+    <section id="list" class="list"></section>
+  </main>
+
+  <script>
+    const links = [
+      "https://junesim.se/products/ungdoms-sm-i-simning-50m",
+      "http://junesim.se/products/ungdoms-sm-i-simning-dag-1-15-juli",
+      "http://junesim.se/products/ungdoms-sm-i-simning-dag-2-16-juli",
+      "https://junesim.se/products/copy-of-ungdoms-sm-i-simning-dag-3-17-juli",
+      "https://junesim.se/products/ungdoms-sm-i-simning-dag-4-18-juli",
+      "https://junesim.se/products/ungdoms-sm-i-simning-dag-5-19-juli"
+    ];
+
+    const pollIntervalMs = 30_000;
+    const requestTimeoutMs = 10_000;
+    const listEl = document.getElementById("list");
+    const lastRunEl = document.getElementById("lastRun");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const overallEl = document.getElementById("overall");
+
+    function render(items) {
+      listEl.innerHTML = "";
+      const anyAvailable = items.some((item) => item.addToCart);
+      overallEl.textContent = anyAvailable
+        ? "Biljetter finns till salu nu"
+        : "Inga biljetter till salu just nu";
+      overallEl.className = `overall ${anyAvailable ? "overall-available" : "overall-unavailable"}`;
+
+      items.forEach((item) => {
+        const article = document.createElement("article");
+        article.className = "item";
+
+        article.innerHTML = `
+          <div class="link-row">
+            <a class="url" href="${item.url}" target="_blank" rel="noreferrer">${item.url}</a>
+            ${item.outOfStock
+              ? '<div class="signal signal-stop" title="OUT OF STOCK"><span class="stop-sign" aria-hidden="true"></span></div>'
+              : item.addToCart
+                ? '<div class="signal signal-available" title="Biljetter till salu"><span class="available-icon" aria-hidden="true">\u2713</span></div>'
+                : '<div class="signal signal-ok" title="Ingen tillgänglighet hittad"><span class="small">-</span></div>'}
+          </div>
+        `;
+
+        listEl.appendChild(article);
+      });
+    }
+
+    function cleanText(input) {
+      return input.replace(/\s+/g, " ").trim();
+    }
+
+    function containsOutOfStock(text) {
+      return /(OUT OF STOCK|SOLD OUT|SLUTSÅLD)/i.test(text);
+    }
+
+    function containsAddToCart(text) {
+      return /(ADD TO CART|LAGG I KUNDVAGN|L\xC4GG I KUNDVAGN)/i.test(text);
+    }
+
+    async function fetchWithTimeout(url) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal
+        });
+        return response;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    async function fetchPageText(url) {
+      const normalizedUrl = url.replace(/^http:\/\//i, "https://");
+      const noScheme = normalizedUrl.replace(/^https?:\/\//, "");
+      const proxyCandidates = [
+        `https://r.jina.ai/http://${noScheme}`,
+        `https://r.jina.ai/http://https://${noScheme}`,
+        `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`
+      ];
+
+      let lastError = null;
+
+      for (const proxyUrl of proxyCandidates) {
+        try {
+          const proxyResponse = await fetchWithTimeout(proxyUrl);
+          if (!proxyResponse.ok) {
+            lastError = new Error(`Proxyfel ${proxyResponse.status}`);
+            continue;
+          }
+
+          const proxyText = await proxyResponse.text();
+          const cleaned = cleanText(proxyText);
+          if (!cleaned) {
+            lastError = new Error("Tomt proxysvar");
+            continue;
+          }
+
+          return {
+            via: "proxy",
+            text: cleaned
+          };
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (lastError && lastError.name === "AbortError") {
+        throw new Error("Timeout vid hämtning");
+      }
+
+      throw lastError || new Error("Kunde inte hämta via proxy");
+    }
+
+    async function checkUrl(url) {
+      const checkedAt = new Date().toLocaleString("sv-SE");
+
+      try {
+        const content = await fetchPageText(url);
+        const outOfStock = containsOutOfStock(content.text);
+        const addToCart = containsAddToCart(content.text);
+
+        return {
+          url,
+          checkedAt,
+          statusText: `OK (${content.via})`,
+          outOfStock,
+          addToCart
+        };
+      } catch (error) {
+        return {
+          url,
+          checkedAt,
+          statusText: `Kunde inte läsa svar (${error.message})`,
+          outOfStock: false,
+          addToCart: false
+        };
+      }
+    }
+
+    async function runPoll() {
+      refreshBtn.disabled = true;
+      const results = await Promise.all(links.map((url) => checkUrl(url)));
+      render(results);
+      lastRunEl.textContent = `Senaste poll: ${new Date().toLocaleString("sv-SE")}`;
+      refreshBtn.disabled = false;
+    }
+
+    refreshBtn.addEventListener("click", runPoll);
+
+    runPoll();
+    setInterval(runPoll, pollIntervalMs);
+  </script>
+</body>
+</html>
