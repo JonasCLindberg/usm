@@ -24,7 +24,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       background: radial-gradient(circle at 10% 10%, #e6fffa 0%, var(--bg) 45%);
       color: var(--text);
-      padding: 24px;
+      padding: 12px 16px;
     }
 
     .container {
@@ -33,29 +33,31 @@
     }
 
     h1 {
-      margin: 0 0 8px;
-      font-size: 1.8rem;
+      margin: 0 0 4px;
+      font-size: 1.3rem;
     }
 
     p {
-      margin: 0 0 18px;
+      margin: 0 0 10px;
       color: var(--muted);
-      line-height: 1.5;
+      font-size: 0.85rem;
+      line-height: 1.4;
     }
 
     .controls {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap: 8px;
+      margin-bottom: 8px;
       flex-wrap: wrap;
     }
 
     .overall {
-      margin: 0 0 18px;
-      padding: 10px 12px;
-      border-radius: 10px;
+      margin: 0 0 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
       font-weight: 700;
+      font-size: 0.95rem;
       border: 1px solid var(--border);
       background: #f8fafc;
     }
@@ -74,8 +76,9 @@
       border: 0;
       background: var(--accent);
       color: #fff;
-      border-radius: 10px;
-      padding: 10px 14px;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 0.9rem;
       font-weight: 600;
       cursor: pointer;
     }
@@ -89,29 +92,33 @@
 
     .list {
       display: grid;
-      gap: 12px;
+      gap: 6px;
     }
 
     .item {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
+      border-radius: 10px;
+      padding: 10px 12px;
     }
 
     .url {
-      word-break: break-word;
       color: #0f172a;
       text-decoration: none;
+      font-size: 0.95rem;
       font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
     }
 
     .link-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
+      gap: 10px;
+      overflow: hidden;
     }
 
     .signal {
@@ -121,8 +128,9 @@
     }
 
     .stop-sign {
-      width: 30px;
-      height: 30px;
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
       background: #dc2626;
       border-radius: 999px;
       display: inline-flex;
@@ -133,8 +141,8 @@
 
     .stop-sign::before {
       content: "";
-      width: 16px;
-      height: 4px;
+      width: 12px;
+      height: 3px;
       border-radius: 2px;
       background: #fff;
     }
@@ -150,15 +158,16 @@
     }
 
     .available-icon {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
       border-radius: 999px;
       background: #16a34a;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 800;
       line-height: 1;
     }
@@ -174,12 +183,8 @@
 </head>
 <body>
   <main class="container">
-    <h1>Länkpollare</h1>
-    <p>
-      Sidan kontrollerar länkarna automatiskt var 30:e sekund och visar om texten
-      "OUT OF STOCK" eller "ADD TO CART" hittas.
-      Om servern blockerar cross-origin-förfrågningar visas ett fel.
-    </p>
+    <h1>USM-biljetter</h1>
+    <p>Pollar automatiskt var 30:e sekund.</p>
 
     <div class="controls">
       <button id="refreshBtn" type="button">Uppdatera nu</button>
@@ -222,7 +227,7 @@
 
         article.innerHTML = `
           <div class="link-row">
-            <a class="url" href="${item.url}" target="_blank" rel="noreferrer">${item.url}</a>
+            <a class="url" href="${item.url}" target="_blank" rel="noreferrer" title="${item.url}">${item.label}</a>
             ${item.outOfStock
               ? '<div class="signal signal-stop" title="OUT OF STOCK"><span class="stop-sign" aria-hidden="true"></span></div>'
               : item.addToCart
@@ -312,17 +317,23 @@
         const content = await fetchPageText(url);
         const outOfStock = containsOutOfStock(content.text);
         const addToCart = containsAddToCart(content.text);
+        const slug = url.split("/products/")[1] || url;
+        const label = slug.replace(/-/g, " ").replace(/^copy of /i, "").trim();
 
         return {
           url,
+          label,
           checkedAt,
           statusText: `OK (${content.via})`,
           outOfStock,
           addToCart
         };
       } catch (error) {
+        const slug = url.split("/products/")[1] || url;
+        const label = slug.replace(/-/g, " ").replace(/^copy of /i, "").trim();
         return {
           url,
+          label,
           checkedAt,
           statusText: `Kunde inte läsa svar (${error.message})`,
           outOfStock: false,
