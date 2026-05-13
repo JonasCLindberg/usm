@@ -52,6 +52,18 @@
       flex-wrap: wrap;
     }
 
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    .toggle input {
+      margin: 0;
+    }
+
     .overall {
       margin: 0 0 10px;
       padding: 8px 10px;
@@ -188,6 +200,13 @@
 
     <div class="controls">
       <button id="refreshBtn" type="button">Uppdatera nu</button>
+      <button id="notifyBtn" type="button">Aktivera notiser</button>
+      <button id="testAlertBtn" type="button">Testa larm</button>
+      <label class="toggle" for="soundToggle">
+        <input id="soundToggle" type="checkbox">
+        Ljudsignal
+      </label>
+      <span id="notifyStatus" class="small">Notiser: okänt</span>
       <span id="lastRun" class="small">Inte kontrollerad ännu</span>
     </div>
 
@@ -211,7 +230,145 @@
     const listEl = document.getElementById("list");
     const lastRunEl = document.getElementById("lastRun");
     const refreshBtn = document.getElementById("refreshBtn");
+    const notifyBtn = document.getElementById("notifyBtn");
+    const testAlertBtn = document.getElementById("testAlertBtn");
+    const notifyStatusEl = document.getElementById("notifyStatus");
+    const soundToggleEl = document.getElementById("soundToggle");
     const overallEl = document.getElementById("overall");
+    const baseTitle = document.title;
+    const suppressedAlertSlugs = new Set([
+      "ungdoms-sm-i-simning-dag-2-16-juli"
+    ]);
+
+    let hasAnnouncedAvailable = false;
+    let titleBlinkIntervalId = null;
+    let audioContext = null;
+
+    function updateNotificationStatus() {
+      if (!("Notification" in window)) {
+        notifyStatusEl.textContent = "Notiser: stöds inte i webbläsaren";
+        notifyBtn.disabled = true;
+        return;
+      }
+
+      if (Notification.permission === "granted") {
+        notifyStatusEl.textContent = "Notiser: aktiverade";
+      } else if (Notification.permission === "denied") {
+        notifyStatusEl.textContent = "Notiser: blockerade i webbläsaren";
+      } else {
+        notifyStatusEl.textContent = "Notiser: inte aktiverade";
+      }
+    }
+
+    async function requestNotificationPermission() {
+      if (!("Notification" in window)) {
+        return "unsupported";
+      }
+      if (Notification.permission === "granted" || Notification.permission === "denied") {
+        return Notification.permission;
+      }
+      return Notification.requestPermission();
+    }
+
+    function startTitleBlink() {
+      if (titleBlinkIntervalId) {
+        return;
+      }
+
+      let flipped = false;
+      titleBlinkIntervalId = setInterval(() => {
+        document.title = flipped ? "Biljetter finns till salu" : "USM-biljetter";
+        flipped = !flipped;
+      }, 900);
+    }
+
+    function stopTitleBlink() {
+      if (!titleBlinkIntervalId) {
+        document.title = baseTitle;
+        return;
+      }
+
+      clearInterval(titleBlinkIntervalId);
+      titleBlinkIntervalId = null;
+      document.title = baseTitle;
+    }
+
+    function ensureAudioContext() {
+      if (!audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          return null;
+        }
+        audioContext = new AudioContextClass();
+      }
+
+      if (audioContext.state === "suspended") {
+        audioContext.resume().catch(() => {});
+      }
+
+      return audioContext;
+    }
+
+    function playAlertSound() {
+      if (!soundToggleEl.checked) {
+        return;
+      }
+
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+
+      const now = ctx.currentTime;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(920, now);
+      oscillator.frequency.setValueAtTime(740, now + 0.2);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.45);
+    }
+
+    function sendNotification(availableCount) {
+      if (!("Notification" in window) || Notification.permission !== "granted") {
+        return;
+      }
+
+      const body = availableCount === 1
+        ? "Minst en biljettlank visar LAGG I KUNDVAGN"
+        : `${availableCount} biljettlankar visar LAGG I KUNDVAGN`;
+
+      new Notification("USM-biljetter: tillgangliga nu", {
+        body,
+        tag: "usm-availability",
+        renotify: true
+      });
+    }
+
+    function triggerAlerts(items) {
+      const availableCount = items.filter((item) => item.addToCart && !suppressedAlertSlugs.has(item.slug)).length;
+      if (availableCount === 0) {
+        hasAnnouncedAvailable = false;
+        stopTitleBlink();
+        return;
+      }
+
+      if (hasAnnouncedAvailable) {
+        return;
+      }
+
+      hasAnnouncedAvailable = true;
+      if (document.hidden) {
+        startTitleBlink();
+      }
+      sendNotification(availableCount);
+      playAlertSound();
+    }
 
     function render(items) {
       listEl.innerHTML = "";
@@ -312,16 +469,17 @@
 
     async function checkUrl(url) {
       const checkedAt = new Date().toLocaleString("sv-SE");
+      const slug = url.split("/products/")[1] || url;
+      const label = slug.replace(/-/g, " ").replace(/^copy of /i, "").trim();
 
       try {
         const content = await fetchPageText(url);
         const outOfStock = containsOutOfStock(content.text);
         const addToCart = containsAddToCart(content.text);
-        const slug = url.split("/products/")[1] || url;
-        const label = slug.replace(/-/g, " ").replace(/^copy of /i, "").trim();
 
         return {
           url,
+          slug,
           label,
           checkedAt,
           statusText: `OK (${content.via})`,
@@ -329,10 +487,9 @@
           addToCart
         };
       } catch (error) {
-        const slug = url.split("/products/")[1] || url;
-        const label = slug.replace(/-/g, " ").replace(/^copy of /i, "").trim();
         return {
           url,
+          slug,
           label,
           checkedAt,
           statusText: `Kunde inte läsa svar (${error.message})`,
@@ -346,11 +503,33 @@
       refreshBtn.disabled = true;
       const results = await Promise.all(links.map((url) => checkUrl(url)));
       render(results);
+      triggerAlerts(results);
       lastRunEl.textContent = `Senaste poll: ${new Date().toLocaleString("sv-SE")}`;
       refreshBtn.disabled = false;
     }
 
     refreshBtn.addEventListener("click", runPoll);
+    notifyBtn.addEventListener("click", async () => {
+      await requestNotificationPermission();
+      updateNotificationStatus();
+    });
+    testAlertBtn.addEventListener("click", () => {
+      startTitleBlink();
+      sendNotification(1);
+      playAlertSound();
+    });
+
+    document.addEventListener("click", () => {
+      ensureAudioContext();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        stopTitleBlink();
+      }
+    });
+
+    updateNotificationStatus();
 
     runPoll();
     setInterval(runPoll, pollIntervalMs);
