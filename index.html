@@ -200,7 +200,7 @@
 <body>
   <main class="container">
     <h1>USM-biljetter</h1>
-    <p>Pollar automatiskt var 30:e sekund.</p>
+    <p>Pollar automatiskt var 2:a minut.</p>
 
     <div class="controls">
       <button id="refreshBtn" type="button">Uppdatera nu</button>
@@ -227,7 +227,7 @@
       "https://junesim.se/products/ungdoms-sm-i-simning-dag-5-19-juli"
     ];
 
-    const pollIntervalMs = 30_000;
+    const pollIntervalMs = 120_000;
     const requestTimeoutMs = 10_000;
     const listEl = document.getElementById("list");
     const lastRunEl = document.getElementById("lastRun");
