@@ -241,6 +241,7 @@
     const alertsParam = (new URLSearchParams(window.location.search).get("alerts") || "").toLowerCase();
     const alertsEnabled = alertsFeatureFlag || alertsParam === "1" || alertsParam === "true" || alertsParam === "on";
     const suppressedAlertSlugs = new Set([
+      "ungdoms-sm-i-simning-dag-1-15-juli",
       "ungdoms-sm-i-simning-dag-2-16-juli"
     ]);
 
