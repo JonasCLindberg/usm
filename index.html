@@ -204,13 +204,11 @@
 
     <div class="controls">
       <button id="refreshBtn" type="button">Uppdatera nu</button>
-      <button id="notifyBtn" type="button">Aktivera notiser</button>
       <button id="testAlertBtn" type="button">Testa larm</button>
       <label id="soundToggleWrap" class="toggle" for="soundToggle">
         <input id="soundToggle" type="checkbox">
         Ljudsignal
       </label>
-      <span id="notifyStatus" class="small">Notiser: okänt</span>
       <span id="lastRun" class="small">Inte kontrollerad ännu</span>
     </div>
 
@@ -234,9 +232,7 @@
     const listEl = document.getElementById("list");
     const lastRunEl = document.getElementById("lastRun");
     const refreshBtn = document.getElementById("refreshBtn");
-    const notifyBtn = document.getElementById("notifyBtn");
     const testAlertBtn = document.getElementById("testAlertBtn");
-    const notifyStatusEl = document.getElementById("notifyStatus");
     const soundToggleWrapEl = document.getElementById("soundToggleWrap");
     const soundToggleEl = document.getElementById("soundToggle");
     const overallEl = document.getElementById("overall");
@@ -249,99 +245,121 @@
     ]);
 
     let hasAnnouncedAvailable = false;
+  let currentAlertCount = 0;
     let titleBlinkIntervalId = null;
     let audioContext = null;
 
-    function canUseNotifications() {
-      return window.isSecureContext && ("Notification" in window);
+    function createFaviconDataUrl(isAlert, count = 0) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return "";
+      }
+
+      ctx.fillStyle = isAlert ? "#b91c1c" : "#0f766e";
+      ctx.beginPath();
+      ctx.arc(32, 32, 28, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 34px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const badgeText = isAlert
+        ? (count > 9 ? "9+" : String(Math.max(count || 1, 1)))
+        : "U";
+      ctx.fillText(badgeText, 32, 34);
+
+      return canvas.toDataURL("image/png");
     }
 
-    function updateNotificationStatus() {
+    function setFavicon(href) {
+      if (!href) {
+        return;
+      }
+
+      let iconEl = document.querySelector("link[rel='icon']");
+      if (!iconEl) {
+        iconEl = document.createElement("link");
+        iconEl.rel = "icon";
+        document.head.appendChild(iconEl);
+      }
+      iconEl.href = href;
+    }
+
+    const normalFavicon = createFaviconDataUrl(false);
+    const alertFaviconCache = new Map();
+
+    function getAlertFavicon(count) {
+      const key = count > 9 ? "9+" : String(Math.max(count, 1));
+      if (!alertFaviconCache.has(key)) {
+        const numericCount = key === "9+" ? 10 : Number(key);
+        alertFaviconCache.set(key, createFaviconDataUrl(true, numericCount));
+      }
+      return alertFaviconCache.get(key);
+    }
+
+    function alertTitle(count) {
+      const countText = count > 9 ? "9+" : String(Math.max(count, 1));
+      return `(${countText}) BILJETTER NU!`;
+    }
+
+    function applyTabAlertState() {
+      if (currentAlertCount <= 0) {
+        document.title = baseTitle;
+        setFavicon(normalFavicon);
+        return;
+      }
+
+      document.title = alertTitle(currentAlertCount);
+      setFavicon(getAlertFavicon(currentAlertCount));
+    }
+
+    function updateAlertControls() {
       if (!alertsEnabled) {
-        notifyBtn.classList.add("hidden");
         testAlertBtn.classList.add("hidden");
-        notifyStatusEl.classList.add("hidden");
         soundToggleWrapEl.classList.add("hidden");
         soundToggleEl.checked = false;
         soundToggleEl.disabled = true;
+        hasAnnouncedAvailable = false;
+        currentAlertCount = 0;
+        stopTitleBlink();
         return;
       }
 
-      notifyBtn.classList.remove("hidden");
       testAlertBtn.classList.remove("hidden");
-      notifyStatusEl.classList.remove("hidden");
       soundToggleWrapEl.classList.remove("hidden");
-
-      if (!("Notification" in window)) {
-        notifyStatusEl.textContent = "Notiser: stöds inte i webbläsaren";
-        notifyBtn.disabled = true;
-        return;
-      }
-
-      if (!window.isSecureContext) {
-        notifyStatusEl.textContent = "Notiser: kräver https eller localhost";
-        notifyBtn.disabled = true;
-        return;
-      }
-
-      notifyBtn.disabled = false;
-
-      if (Notification.permission === "granted") {
-        notifyStatusEl.textContent = "Notiser: aktiverade";
-        notifyBtn.textContent = "Notiser aktiverade";
-      } else if (Notification.permission === "denied") {
-        notifyStatusEl.textContent = "Notiser: blockerade, tillat i webbläsaren";
-        notifyBtn.textContent = "Aktivera notiser";
-      } else {
-        notifyStatusEl.textContent = "Notiser: inte aktiverade";
-        notifyBtn.textContent = "Aktivera notiser";
-      }
     }
 
-    async function requestNotificationPermission() {
-      if (!alertsEnabled) {
-        return "disabled";
-      }
-
-      if (!canUseNotifications()) {
-        return "unsupported";
-      }
-      if (Notification.permission === "granted" || Notification.permission === "denied") {
-        return Notification.permission;
-      }
-
-      // Safari/older browsers may only support callback style.
-      const result = Notification.requestPermission((permission) => permission);
-      if (result && typeof result.then === "function") {
-        return result;
-      }
-
-      return new Promise((resolve) => {
-        Notification.requestPermission((permission) => resolve(permission));
-      });
-    }
-
-    function startTitleBlink() {
+    function startTitleBlink(count = 1) {
       if (titleBlinkIntervalId) {
         return;
       }
 
       let flipped = false;
       titleBlinkIntervalId = setInterval(() => {
-        document.title = flipped ? "Biljetter finns till salu" : "USM-biljetter";
+        if (flipped) {
+          document.title = alertTitle(count);
+          setFavicon(getAlertFavicon(count));
+        } else {
+          document.title = `● ${baseTitle}`;
+          setFavicon(normalFavicon);
+        }
         flipped = !flipped;
       }, 900);
     }
 
     function stopTitleBlink() {
       if (!titleBlinkIntervalId) {
-        document.title = baseTitle;
+        applyTabAlertState();
         return;
       }
 
       clearInterval(titleBlinkIntervalId);
       titleBlinkIntervalId = null;
-      document.title = baseTitle;
+      applyTabAlertState();
     }
 
     function ensureAudioContext() {
@@ -385,50 +403,37 @@
       oscillator.stop(now + 0.45);
     }
 
-    function sendNotification(availableCount) {
-      if (!alertsEnabled) {
-        return;
-      }
-
-      if (!("Notification" in window) || Notification.permission !== "granted") {
-        return;
-      }
-
-      const body = availableCount === 1
-        ? "Minst en biljettlank visar LAGG I KUNDVAGN"
-        : `${availableCount} biljettlankar visar LAGG I KUNDVAGN`;
-
-      new Notification("USM-biljetter: tillgangliga nu", {
-        body,
-        tag: "usm-availability",
-        renotify: true
-      });
-    }
-
     function triggerAlerts(items) {
       if (!alertsEnabled) {
-        stopTitleBlink();
         hasAnnouncedAvailable = false;
+        currentAlertCount = 0;
+        stopTitleBlink();
         return;
       }
 
       const availableCount = items.filter((item) => item.addToCart && !suppressedAlertSlugs.has(item.slug)).length;
       if (availableCount === 0) {
         hasAnnouncedAvailable = false;
+        currentAlertCount = 0;
         stopTitleBlink();
         return;
       }
 
-      if (hasAnnouncedAvailable) {
-        return;
+      const shouldPlaySound = !hasAnnouncedAvailable;
+      hasAnnouncedAvailable = true;
+      currentAlertCount = availableCount;
+      if (document.hidden) {
+        if (titleBlinkIntervalId) {
+          stopTitleBlink();
+        }
+        startTitleBlink(availableCount);
+      } else {
+        stopTitleBlink();
       }
 
-      hasAnnouncedAvailable = true;
-      if (document.hidden) {
-        startTitleBlink();
+      if (shouldPlaySound) {
+        playAlertSound();
       }
-      sendNotification(availableCount);
-      playAlertSound();
     }
 
     function render(items) {
@@ -570,28 +575,13 @@
     }
 
     refreshBtn.addEventListener("click", runPoll);
-    notifyBtn.addEventListener("click", async () => {
-      const permission = await requestNotificationPermission();
-
-      if (permission === "granted") {
-        new Notification("Notiser aktiverade", {
-          body: "Du far nu larm nar biljetter blir tillgangliga."
-        });
-      } else if (permission === "denied") {
-        notifyStatusEl.textContent = "Notiser: blockerade, andra i sidinstallningar";
-      } else if (permission === "default") {
-        notifyStatusEl.textContent = "Notiser: ingen tillatelse vald, tillat i browserprompten";
-      } else if (permission === "unsupported") {
-        notifyStatusEl.textContent = "Notiser: krav pa https/localhost och webblasarstöd";
-      } else if (permission === "disabled") {
-        notifyStatusEl.textContent = "Notiser: avstangda (featureflagga)";
-      }
-
-      updateNotificationStatus();
-    });
     testAlertBtn.addEventListener("click", () => {
-      startTitleBlink();
-      sendNotification(1);
+      currentAlertCount = 1;
+      if (document.hidden) {
+        startTitleBlink(1);
+      } else {
+        applyTabAlertState();
+      }
       playAlertSound();
     });
 
@@ -602,10 +592,13 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         stopTitleBlink();
+      } else if (currentAlertCount > 0) {
+        startTitleBlink(currentAlertCount);
       }
     });
 
-    updateNotificationStatus();
+    updateAlertControls();
+    applyTabAlertState();
 
     runPoll();
     setInterval(runPoll, pollIntervalMs);
