@@ -244,6 +244,10 @@
     let titleBlinkIntervalId = null;
     let audioContext = null;
 
+    function canUseNotifications() {
+      return window.isSecureContext && ("Notification" in window);
+    }
+
     function updateNotificationStatus() {
       if (!("Notification" in window)) {
         notifyStatusEl.textContent = "Notiser: stöds inte i webbläsaren";
@@ -251,17 +255,28 @@
         return;
       }
 
+      if (!window.isSecureContext) {
+        notifyStatusEl.textContent = "Notiser: kräver https eller localhost";
+        notifyBtn.disabled = true;
+        return;
+      }
+
+      notifyBtn.disabled = false;
+
       if (Notification.permission === "granted") {
         notifyStatusEl.textContent = "Notiser: aktiverade";
+        notifyBtn.textContent = "Notiser aktiverade";
       } else if (Notification.permission === "denied") {
-        notifyStatusEl.textContent = "Notiser: blockerade i webbläsaren";
+        notifyStatusEl.textContent = "Notiser: blockerade, tillat i webbläsaren";
+        notifyBtn.textContent = "Aktivera notiser";
       } else {
         notifyStatusEl.textContent = "Notiser: inte aktiverade";
+        notifyBtn.textContent = "Aktivera notiser";
       }
     }
 
     async function requestNotificationPermission() {
-      if (!("Notification" in window)) {
+      if (!canUseNotifications()) {
         return "unsupported";
       }
       if (Notification.permission === "granted" || Notification.permission === "denied") {
@@ -510,7 +525,18 @@
 
     refreshBtn.addEventListener("click", runPoll);
     notifyBtn.addEventListener("click", async () => {
-      await requestNotificationPermission();
+      const permission = await requestNotificationPermission();
+
+      if (permission === "granted") {
+        new Notification("Notiser aktiverade", {
+          body: "Du far nu larm nar biljetter blir tillgangliga."
+        });
+      } else if (permission === "denied") {
+        notifyStatusEl.textContent = "Notiser: blockerade, andra i sidinstallningar";
+      } else if (permission === "unsupported") {
+        notifyStatusEl.textContent = "Notiser: krav pa https/localhost och webblasarstöd";
+      }
+
       updateNotificationStatus();
     });
     testAlertBtn.addEventListener("click", () => {
