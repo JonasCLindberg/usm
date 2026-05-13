@@ -64,6 +64,10 @@
       margin: 0;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
     .overall {
       margin: 0 0 10px;
       padding: 8px 10px;
@@ -202,7 +206,7 @@
       <button id="refreshBtn" type="button">Uppdatera nu</button>
       <button id="notifyBtn" type="button">Aktivera notiser</button>
       <button id="testAlertBtn" type="button">Testa larm</button>
-      <label class="toggle" for="soundToggle">
+      <label id="soundToggleWrap" class="toggle" for="soundToggle">
         <input id="soundToggle" type="checkbox">
         Ljudsignal
       </label>
@@ -233,9 +237,13 @@
     const notifyBtn = document.getElementById("notifyBtn");
     const testAlertBtn = document.getElementById("testAlertBtn");
     const notifyStatusEl = document.getElementById("notifyStatus");
+    const soundToggleWrapEl = document.getElementById("soundToggleWrap");
     const soundToggleEl = document.getElementById("soundToggle");
     const overallEl = document.getElementById("overall");
     const baseTitle = document.title;
+    const alertsFeatureFlag = false;
+    const alertsParam = (new URLSearchParams(window.location.search).get("alerts") || "").toLowerCase();
+    const alertsEnabled = alertsFeatureFlag || alertsParam === "1" || alertsParam === "true" || alertsParam === "on";
     const suppressedAlertSlugs = new Set([
       "ungdoms-sm-i-simning-dag-2-16-juli"
     ]);
@@ -249,6 +257,21 @@
     }
 
     function updateNotificationStatus() {
+      if (!alertsEnabled) {
+        notifyBtn.classList.add("hidden");
+        testAlertBtn.classList.add("hidden");
+        notifyStatusEl.classList.add("hidden");
+        soundToggleWrapEl.classList.add("hidden");
+        soundToggleEl.checked = false;
+        soundToggleEl.disabled = true;
+        return;
+      }
+
+      notifyBtn.classList.remove("hidden");
+      testAlertBtn.classList.remove("hidden");
+      notifyStatusEl.classList.remove("hidden");
+      soundToggleWrapEl.classList.remove("hidden");
+
       if (!("Notification" in window)) {
         notifyStatusEl.textContent = "Notiser: stöds inte i webbläsaren";
         notifyBtn.disabled = true;
@@ -276,13 +299,26 @@
     }
 
     async function requestNotificationPermission() {
+      if (!alertsEnabled) {
+        return "disabled";
+      }
+
       if (!canUseNotifications()) {
         return "unsupported";
       }
       if (Notification.permission === "granted" || Notification.permission === "denied") {
         return Notification.permission;
       }
-      return Notification.requestPermission();
+
+      // Safari/older browsers may only support callback style.
+      const result = Notification.requestPermission((permission) => permission);
+      if (result && typeof result.then === "function") {
+        return result;
+      }
+
+      return new Promise((resolve) => {
+        Notification.requestPermission((permission) => resolve(permission));
+      });
     }
 
     function startTitleBlink() {
@@ -350,6 +386,10 @@
     }
 
     function sendNotification(availableCount) {
+      if (!alertsEnabled) {
+        return;
+      }
+
       if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
       }
@@ -366,6 +406,12 @@
     }
 
     function triggerAlerts(items) {
+      if (!alertsEnabled) {
+        stopTitleBlink();
+        hasAnnouncedAvailable = false;
+        return;
+      }
+
       const availableCount = items.filter((item) => item.addToCart && !suppressedAlertSlugs.has(item.slug)).length;
       if (availableCount === 0) {
         hasAnnouncedAvailable = false;
@@ -533,8 +579,12 @@
         });
       } else if (permission === "denied") {
         notifyStatusEl.textContent = "Notiser: blockerade, andra i sidinstallningar";
+      } else if (permission === "default") {
+        notifyStatusEl.textContent = "Notiser: ingen tillatelse vald, tillat i browserprompten";
       } else if (permission === "unsupported") {
         notifyStatusEl.textContent = "Notiser: krav pa https/localhost och webblasarstöd";
+      } else if (permission === "disabled") {
+        notifyStatusEl.textContent = "Notiser: avstangda (featureflagga)";
       }
 
       updateNotificationStatus();
